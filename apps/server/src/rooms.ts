@@ -83,7 +83,7 @@ export class RoomRegistry {
       resumeToken: participant.resumeToken,
       resumed,
       peers,
-      ice: buildIceConfig(),
+      ice: buildIceConfig(participant.participantId),
     } as const;
 
     return {

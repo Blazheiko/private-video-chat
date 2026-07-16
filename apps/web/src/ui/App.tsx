@@ -24,6 +24,7 @@ export function App() {
   const [iceConfig, setIceConfig] = useState<IceConfig>();
   const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [replacementPrivateLink, setReplacementPrivateLink] = useState('');
+  const [callNotice, setCallNotice] = useState<string>();
   const [linkKey] = useState(() => readAndClearFragmentKey());
   const [senderId] = useState(() => crypto.randomUUID().slice(0, 8));
   const intentionalClose = useRef(false);
@@ -44,16 +45,24 @@ export function App() {
     }
 
     errorText.value = undefined;
+    setCallNotice(undefined);
     setRoomUnavailable(false);
     setReplacementPrivateLink('');
     connectionState.value = 'connecting';
 
     const ws = new WsClient({
       onMessage: async (msg: ServerMessage) => {
-        await handleServerMessage(msg, linkKey, guard, setIceConfig, () => {
-          setRoomUnavailable(true);
-          setClient(undefined);
-        });
+        await handleServerMessage(
+          msg,
+          linkKey,
+          guard,
+          setIceConfig,
+          setCallNotice,
+          () => {
+            setRoomUnavailable(true);
+            setClient(undefined);
+          },
+        );
       },
       onError: message => {
         errorText.value = message;
@@ -97,6 +106,7 @@ export function App() {
     setIceConfig(undefined);
     setRoomUnavailable(false);
     setReplacementPrivateLink('');
+    setCallNotice(undefined);
     resetRoomState();
   };
 
@@ -179,6 +189,7 @@ export function App() {
                   iceConfig={iceConfig}
                   roomState={connectionState.value}
                   roomInstanceId={roomInstanceId.value}
+                  roomNotice={callNotice}
                   onJoin={join}
                   onLeave={leave}
                 />
@@ -324,6 +335,7 @@ async function handleServerMessage(
   linkKey: string,
   guard: ReplayGuard,
   setIceConfig: (iceConfig: IceConfig) => void,
+  setCallNotice: (message: string | undefined) => void,
   onPrivateRoomUnavailable: () => void,
 ): Promise<void> {
   switch (msg.t) {
@@ -332,6 +344,7 @@ async function handleServerMessage(
       roomInstanceId.value = msg.roomInstanceId;
       peers.value = msg.peers;
       connectionState.value = 'joined';
+      setCallNotice(undefined);
       setIceConfig(msg.ice);
       guard.resetAll();
       return;
@@ -345,6 +358,10 @@ async function handleServerMessage(
 
     case 'peer-left':
       peers.value = peers.value.filter(peer => peer.participantId !== msg.participantId);
+
+      if (msg.reason === 'left') {
+        setCallNotice('Opponent ended the call.');
+      }
 
       if (msg.reason === 'grace-expired') {
         guard.resetParticipant(msg.participantId);

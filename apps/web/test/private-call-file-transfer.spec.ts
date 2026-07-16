@@ -64,6 +64,10 @@ describe('PrivateCall incoming file-start validation', () => {
     expect(isSafeIncomingFileDataUrl('data:text/plain;base64,' + 'a'.repeat(1024), meta)).toBe(false);
   });
 
+  it('parses peer call-ended control messages', () => {
+    expect(parseDataChannelMessage(JSON.stringify({ t: 'call-ended' }))).toEqual({ t: 'call-ended' });
+  });
+
   it('normalizes malformed parsed file-start totalChunks to a rejected message', () => {
     const parsed = parseDataChannelMessage(
       JSON.stringify({

@@ -10,6 +10,7 @@ type Props = {
   iceConfig?: IceConfig;
   roomState: 'closed' | 'connecting' | 'joined' | 'error';
   roomInstanceId?: string;
+  roomNotice?: string;
   onJoin: () => void;
   onLeave: () => void;
 };
@@ -50,6 +51,7 @@ type PendingFileTransfer = {
 export type DataChannelMessage =
   | { t: 'chat'; text: string }
   | { t: 'typing'; active: boolean }
+  | { t: 'call-ended' }
   | { t: 'file-start'; id: string; file: ChatFileMeta; totalChunks: number }
   | { t: 'file-chunk'; id: string; index: number; data: string };
 type MediaDeviceOption = {
@@ -74,6 +76,7 @@ export function PrivateCall({
   iceConfig,
   roomState,
   roomInstanceId,
+  roomNotice,
   onJoin,
   onLeave,
 }: Props) {
@@ -142,23 +145,29 @@ export function PrivateCall({
   }, []);
 
   useEffect(() => {
+    if (roomNotice) {
+      showPresenceNotice(roomNotice);
+    }
+  }, [roomNotice]);
+
+  useEffect(() => {
     const currentPeerId = peer?.participantId;
 
     if (currentPeerId && currentPeerId !== previousPeerId.current) {
       showPresenceNotice('Opponent joined the private chat.');
     }
 
-    if (!currentPeerId && previousPeerId.current) {
+    if (!currentPeerId && previousPeerId.current && !roomNotice) {
       showPresenceNotice('Opponent left the private chat.');
     }
 
     previousPeerId.current = currentPeerId;
-  }, [peer?.participantId]);
+  }, [peer?.participantId, roomNotice]);
 
   useEffect(() => () => {
     clearTimeout(peerTypingTimer.current);
     clearTimeout(presenceNoticeTimer.current);
-    endCall();
+    endCall({ notifyPeer: false });
   }, []);
 
   const startCall = async () => {
@@ -584,6 +593,11 @@ export function PrivateCall({
         return;
       }
 
+      if (message.t === 'call-ended') {
+        handlePeerEndedCall();
+        return;
+      }
+
       showPeerTyping(false);
 
       if (message.t === 'file-start') {
@@ -728,7 +742,11 @@ export function PrivateCall({
     client?.signal(to, data);
   }
 
-  function endCall(): void {
+  function endCall(options: { notifyPeer?: boolean } = {}): void {
+    if (options.notifyPeer !== false) {
+      sendDataChannelMessage({ t: 'call-ended' });
+    }
+
     dataChannel.current?.close();
     peerConnection.current?.close();
 
@@ -750,6 +768,11 @@ export function PrivateCall({
     setScreenSharing(false);
     setMicrophoneEnabled(true);
     setCallState('ended');
+  }
+
+  function handlePeerEndedCall(): void {
+    showPresenceNotice('Opponent ended the call.');
+    endCall({ notifyPeer: false });
   }
 
   function handleCallError(error: unknown): void {
@@ -864,7 +887,7 @@ export function PrivateCall({
             active={chatOpen}
             onClick={() => setChatOpen(current => !current)}
           />
-          <CallControlButton icon="hangup" label="End call" danger disabled={!callActive} onClick={endCall} />
+          <CallControlButton icon="hangup" label="End call" danger disabled={!callActive} onClick={() => endCall()} />
         </div>
       </div>
 
@@ -957,6 +980,10 @@ export function parseDataChannelMessage(data: unknown): DataChannelMessage {
 
     if (parsed.t === 'chat' && typeof parsed.text === 'string') {
       return { t: 'chat', text: parsed.text };
+    }
+
+    if (parsed.t === 'call-ended') {
+      return { t: 'call-ended' };
     }
 
     if (parsed.t === 'file-start' && typeof parsed.id === 'string' && isChatFileMeta(parsed.file)) {
