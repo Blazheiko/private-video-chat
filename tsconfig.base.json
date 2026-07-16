@@ -24,6 +24,8 @@
       "@shared": ["packages/shared/src/index.ts"],
       "@shared/*": ["packages/shared/src/*"],
       "@web/*": ["apps/web/src/*"]
-    }
+    },
+    "ignoreDeprecations": "6.0",
+    "types": ["node"]
   }
 }

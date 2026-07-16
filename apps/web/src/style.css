@@ -543,7 +543,7 @@ button.secondary {
   transform: translateX(-50%);
 }
 
-.call-controls:active-within {
+.call-controls:focus-within {
   transform: translateX(-50%);
 }
 
@@ -791,13 +791,8 @@ button.secondary {
     grid-template-columns: 1fr;
   }
 
-  .stage-top-bar {
-    flex-wrap: wrap;
-  }
-
-  .stage-status,
-  .private-room-meta {
-    flex: 1 1 100%;
+  .private-room-meta .room-instance {
+    display: none;
   }
 
   .presence-notice {

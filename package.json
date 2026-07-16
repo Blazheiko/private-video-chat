@@ -16,11 +16,11 @@
     "start": "pnpm build && pnpm --filter @private-video-chat/server start"
   },
   "devDependencies": {
-    "@eslint/js": "^9.31.0",
-    "@types/node": "^22.10.0",
-    "eslint": "^9.31.0",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0",
-    "vitest": "^2.1.8"
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.1.1",
+    "eslint": "10.7.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0",
+    "vitest": "4.1.10"
   }
 }

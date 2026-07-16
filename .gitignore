@@ -24,3 +24,5 @@ apps/*/.env.*
 packages/*/.env
 packages/*/.env.*
 !packages/*/.env.example
+dist-types/
+**/dist-types
