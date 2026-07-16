@@ -4,6 +4,7 @@ import { PrivateCall } from '@web/rtc/PrivateCall.js';
 import { ReplayGuard, decryptText, encryptText } from '@web/crypto/e2e.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
 import { connectionState, errorText, messages, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
+import { reconnectDelayMs } from '@web/ws/reconnect.js';
 import { WsClient } from '@web/ws/client.js';
 
 function routeFromPath(): { kind: 'group' | 'private'; room?: string } {
@@ -28,26 +29,31 @@ export function App() {
   const [linkKey] = useState(() => readAndClearFragmentKey());
   const [senderId] = useState(() => crypto.randomUUID().slice(0, 8));
   const intentionalClose = useRef(false);
+  const activeClient = useRef<WsClient>();
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectAttempt = useRef(0);
+  const resumeToken = useRef<string>();
+  const reconnectCancelled = useRef(false);
   const guard = useMemo(() => new ReplayGuard(), []);
   const current = routeFromPath();
   const isPrivateRoom = current.kind === 'private' && Boolean(current.room);
   const isJoined = connectionState.value === 'joined';
   const isConnecting = connectionState.value === 'connecting';
 
-  const join = () => {
-    if (isConnecting || isJoined) {
-      return;
-    }
+  const clearReconnectTimer = () => {
+    clearTimeout(reconnectTimer.current);
+    reconnectTimer.current = undefined;
+  };
 
+  useEffect(() => () => clearReconnectTimer(), []);
+
+  const connectSignaling = (token?: string) => {
     if (!current.room || !linkKey) {
       errorText.value = 'Open a room link with #k= key to join.';
       return;
     }
 
-    errorText.value = undefined;
-    setCallNotice(undefined);
-    setRoomUnavailable(false);
-    setReplacementPrivateLink('');
+    clearReconnectTimer();
     connectionState.value = 'connecting';
 
     const ws = new WsClient({
@@ -58,7 +64,15 @@ export function App() {
           guard,
           setIceConfig,
           setCallNotice,
+          nextResumeToken => {
+            resumeToken.current = nextResumeToken;
+            reconnectAttempt.current = 0;
+            errorText.value = undefined;
+          },
           () => {
+            reconnectCancelled.current = true;
+            activeClient.current = undefined;
+            clearReconnectTimer();
             setRoomUnavailable(true);
             setClient(undefined);
           },
@@ -66,48 +80,82 @@ export function App() {
       },
       onError: message => {
         errorText.value = message;
-        connectionState.value = 'error';
       },
       onClose: () => {
+        if (activeClient.current !== ws) {
+          return;
+        }
+
+        activeClient.current = undefined;
         setClient(undefined);
         setIceConfig(undefined);
 
         if (intentionalClose.current) {
           intentionalClose.current = false;
+          reconnectCancelled.current = true;
+          clearReconnectTimer();
+          resumeToken.current = undefined;
           resetRoomState();
           return;
         }
 
-        if (connectionState.value === 'connecting') {
-          connectionState.value = 'error';
-          errorText.value = 'Signaling connection closed before joining. Check that the server app is running.';
-          return;
-        }
-
-        if (connectionState.value !== 'error') {
-          resetRoomState();
-        }
+        scheduleReconnect();
       },
     });
 
-    ws.connectJoin(current.room, current.kind, senderId);
+    activeClient.current = ws;
+    ws.connectJoin(current.room, current.kind, senderId, token);
     setClient(ws);
+  };
+
+  const scheduleReconnect = () => {
+    if (reconnectCancelled.current || !current.room || !linkKey) {
+      resetRoomState();
+      return;
+    }
+
+    const delayMs = reconnectDelayMs(reconnectAttempt.current);
+    reconnectAttempt.current += 1;
+    connectionState.value = 'connecting';
+    errorText.value = `Signaling connection lost. Reconnecting in ${Math.ceil(delayMs / 1000)}s...`;
+    clearReconnectTimer();
+    reconnectTimer.current = setTimeout(() => connectSignaling(resumeToken.current), delayMs);
+  };
+
+  const join = () => {
+    if (isConnecting || isJoined) {
+      return;
+    }
+
+    errorText.value = undefined;
+    setCallNotice(undefined);
+    setRoomUnavailable(false);
+    setReplacementPrivateLink('');
+    reconnectCancelled.current = false;
+    reconnectAttempt.current = 0;
+    resumeToken.current = undefined;
+    connectSignaling();
   };
 
   const leave = () => {
     intentionalClose.current = true;
+    reconnectCancelled.current = true;
+    clearReconnectTimer();
     client?.leave();
 
     if (!client) {
       intentionalClose.current = false;
     }
 
+    activeClient.current = undefined;
+    resumeToken.current = undefined;
     setClient(undefined);
     setIceConfig(undefined);
     setRoomUnavailable(false);
     setReplacementPrivateLink('');
     setCallNotice(undefined);
     resetRoomState();
+    intentionalClose.current = false;
   };
 
   const createReplacementPrivateLink = () => {
@@ -336,6 +384,7 @@ async function handleServerMessage(
   guard: ReplayGuard,
   setIceConfig: (iceConfig: IceConfig) => void,
   setCallNotice: (message: string | undefined) => void,
+  onJoined: (resumeToken: string) => void,
   onPrivateRoomUnavailable: () => void,
 ): Promise<void> {
   switch (msg.t) {
@@ -346,6 +395,7 @@ async function handleServerMessage(
       connectionState.value = 'joined';
       setCallNotice(undefined);
       setIceConfig(msg.ice);
+      onJoined(msg.resumeToken);
       guard.resetAll();
       return;
 
