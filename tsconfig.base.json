@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "#server/*": ["apps/server/src/*"],
+      "#shared": ["packages/shared/src/index.ts"],
+      "#shared/*": ["packages/shared/src/*"],
+      "@private-video-chat/shared": ["packages/shared/src/index.ts"],
+      "@private-video-chat/shared/*": ["packages/shared/src/*"],
+      "@server/*": ["apps/server/src/*"],
+      "@shared": ["packages/shared/src/index.ts"],
+      "@shared/*": ["packages/shared/src/*"],
+      "@web/*": ["apps/web/src/*"]
+    }
+  }
+}

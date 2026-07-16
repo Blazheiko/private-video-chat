@@ -1,0 +1,20 @@
+{
+  "file_scan_exclusions": [
+    "**/.git",
+    "**/.svn",
+    "**/.hg",
+    "**/.jj",
+    "**/CVS",
+    "**/.DS_Store",
+    "**/Thumbs.db",
+    "**/.classpath",
+    "**/.settings",
+    "**/.omx",
+    "**/.codex",
+    "**/node_modules",
+    "**/dist",
+    "**/.vite",
+    "**/*.tsbuildinfo"
+  ],
+  "scan_symlinks": "expanded"
+}
