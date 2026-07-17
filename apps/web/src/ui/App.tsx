@@ -285,6 +285,12 @@ function MainOverview({ open, onToggle }: { open: boolean; onToggle: () => void 
           <article>
             <strong>Author</strong>
             <span>Created by Olexandr Blazheiko.</span>
+            <span className="author-links">
+              <a href="https://github.com/Blazheiko/private-video-chat" target="_blank" rel="noreferrer">
+                Open source repository
+              </a>
+              <a href="mailto:blazheiko@gmail.com">blazheiko@gmail.com</a>
+            </span>
           </article>
         </div>
       )}

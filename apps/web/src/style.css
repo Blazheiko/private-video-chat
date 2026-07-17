@@ -169,6 +169,18 @@ section {
   margin: 0;
 }
 
+.author-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.author-links a {
+  color: #86efac;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .eyebrow {
   margin-bottom: 0.45rem;
   color: #86efac;
