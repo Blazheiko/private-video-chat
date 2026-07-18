@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Private Video Chat">
+  <rect width="512" height="512" rx="112" fill="#0b1020"/>
+  <circle cx="256" cy="256" r="178" fill="#101827" stroke="#22c55e" stroke-width="18"/>
+  <path fill="#22c55e" d="M154 195a38 38 0 0 1 38-38h96a38 38 0 0 1 38 38v32l62-38c18-11 42 2 42 24v86c0 22-24 35-42 24l-62-38v32a38 38 0 0 1-38 38h-96a38 38 0 0 1-38-38V195Z"/>
+  <path fill="#0b1020" d="M234 223a22 22 0 0 1 44 0v34h12a14 14 0 0 1 14 14v48a14 14 0 0 1-14 14h-68a14 14 0 0 1-14-14v-48a14 14 0 0 1 14-14h12v-34Zm22-44a44 44 0 0 0-44 44v34h22v-34a22 22 0 0 1 44 0v34h22v-34a44 44 0 0 0-44-44Z"/>
+</svg>

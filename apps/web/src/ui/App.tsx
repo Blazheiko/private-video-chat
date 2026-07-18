@@ -4,6 +4,7 @@ import { PrivateCall } from '@web/rtc/PrivateCall.js';
 import { ReplayGuard, decryptText, encryptText } from '@web/crypto/e2e.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
 import { connectionState, errorText, messages, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
+import { isAppleMobileDevice, isStandalonePwa } from '@web/pwa.js';
 import { reconnectDelayMs } from '@web/ws/reconnect.js';
 import { WsClient } from '@web/ws/client.js';
 
@@ -26,6 +27,7 @@ export function App() {
   const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [replacementPrivateLink, setReplacementPrivateLink] = useState('');
   const [callNotice, setCallNotice] = useState<string>();
+  const [showIosInstallHint, setShowIosInstallHint] = useState(false);
   const [linkKey] = useState(() => readAndClearFragmentKey());
   const [senderId] = useState(() => crypto.randomUUID().slice(0, 8));
   const intentionalClose = useRef(false);
@@ -46,6 +48,19 @@ export function App() {
   };
 
   useEffect(() => () => clearReconnectTimer(), []);
+
+  useEffect(() => {
+    const dismissed = readLocalStorage(IOS_INSTALL_HINT_DISMISSED_KEY) === 'true';
+
+    if (!dismissed && isAppleMobileDevice() && !isStandalonePwa()) {
+      setShowIosInstallHint(true);
+    }
+  }, []);
+
+  const dismissIosInstallHint = () => {
+    writeLocalStorage(IOS_INSTALL_HINT_DISMISSED_KEY, 'true');
+    setShowIosInstallHint(false);
+  };
 
   const connectSignaling = (token?: string) => {
     if (!current.room || !linkKey) {
@@ -188,6 +203,8 @@ export function App() {
     <main className={isPrivateRoom ? 'app-shell private-room-shell' : 'app-shell'}>
       {!isPrivateRoom && <h1>Private Video Chat</h1>}
 
+      {!isPrivateRoom && showIosInstallHint && <IosInstallHint onDismiss={dismissIosInstallHint} />}
+
       {!current.room && <MainOverview open={aboutOpen} onToggle={() => setAboutOpen(current => !current)} />}
 
       {!isPrivateRoom && (
@@ -252,6 +269,25 @@ export function App() {
   );
 }
 
+const IOS_INSTALL_HINT_DISMISSED_KEY = 'private-video-chat:ios-install-hint-dismissed';
+
+
+function readLocalStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Ignore storage failures in private browsing modes; the hint can still be dismissed for this render.
+  }
+}
+
 function MainOverview({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
     <section className="app-overview">
@@ -294,6 +330,24 @@ function MainOverview({ open, onToggle }: { open: boolean; onToggle: () => void 
           </article>
         </div>
       )}
+    </section>
+  );
+}
+
+function IosInstallHint({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <section className="ios-install-card" aria-label="Install app on iPhone or iPad">
+      <div>
+        <p className="eyebrow">Install web app</p>
+        <h2>Add Private Video Chat to your Home Screen</h2>
+        <p>
+          On iPhone or iPad, tap the <strong>Share</strong> button in Safari, then choose{' '}
+          <strong>Add to Home Screen</strong> to launch it like an app.
+        </p>
+      </div>
+      <button className="secondary" onClick={onDismiss} aria-label="Dismiss installation instructions">
+        Got it
+      </button>
     </section>
   );
 }
