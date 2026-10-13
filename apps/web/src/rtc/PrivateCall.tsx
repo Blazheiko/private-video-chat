@@ -11,7 +11,7 @@ type Props = {
   roomState: 'closed' | 'connecting' | 'joined' | 'error';
   roomInstanceId?: string;
   roomNotice?: string;
-  onJoin: () => void;
+  onRetry?: () => void;
   onLeave: () => void;
 };
 
@@ -77,7 +77,7 @@ export function PrivateCall({
   roomState,
   roomInstanceId,
   roomNotice,
-  onJoin,
+  onRetry,
   onLeave,
 }: Props) {
   const [callState, setCallState] = useState<CallState>('idle');
@@ -809,17 +809,14 @@ export function PrivateCall({
           <div className="private-room-meta">
             <span className={`status-dot ${roomState}`} aria-hidden="true" />
             <strong>Private room</strong>
-            <span className="room-state">{roomState}</span>
+            <span className="room-state">{isConnecting ? 'Joining…' : roomState}</span>
             {roomInstanceId && <span className="room-instance">{roomInstanceId}</span>}
-            {isJoined ? (
+            {isJoined && (
               <button className="leave-room-button" onClick={onLeave}>
                 Exit
               </button>
-            ) : (
-              <button disabled={isConnecting} onClick={onJoin}>
-                {isConnecting ? 'Joining...' : 'Join'}
-              </button>
             )}
+            {onRetry && <button onClick={onRetry}>Retry</button>}
           </div>
         </div>
 

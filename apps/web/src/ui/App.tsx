@@ -4,6 +4,7 @@ import { PrivateCall } from '@web/rtc/PrivateCall.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
 import { connectionState, errorText, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
 import { isAppleMobileDevice, isStandalonePwa } from '@web/pwa.js';
+import { roomEntry } from '@web/ui/room-entry.js';
 import { reconnectDelayMs } from '@web/ws/reconnect.js';
 import { WsClient } from '@web/ws/client.js';
 
@@ -33,7 +34,10 @@ export function App() {
   const reconnectAttempt = useRef(0);
   const resumeToken = useRef<string>();
   const reconnectCancelled = useRef(false);
+  const autoJoinStarted = useRef(false);
+  const leaveFallbackTimer = useRef<ReturnType<typeof setTimeout>>();
   const current = routeFromPath();
+  const entry = roomEntry({ room: current.room, linkKey, roomUnavailable });
   const isPrivateRoom = Boolean(current.room);
   const isJoined = connectionState.value === 'joined';
   const isConnecting = connectionState.value === 'connecting';
@@ -43,7 +47,22 @@ export function App() {
     reconnectTimer.current = undefined;
   };
 
-  useEffect(() => () => clearReconnectTimer(), []);
+  useEffect(
+    () => () => {
+      clearReconnectTimer();
+      clearTimeout(leaveFallbackTimer.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (entry !== 'auto-join' || autoJoinStarted.current) {
+      return;
+    }
+
+    autoJoinStarted.current = true;
+    join();
+  }, []);
 
   useEffect(() => {
     const dismissed = readLocalStorage(IOS_INSTALL_HINT_DISMISSED_KEY) === 'true';
@@ -100,11 +119,7 @@ export function App() {
         setIceConfig(undefined);
 
         if (intentionalClose.current) {
-          intentionalClose.current = false;
-          reconnectCancelled.current = true;
-          clearReconnectTimer();
-          resumeToken.current = undefined;
-          resetRoomState();
+          goHome();
           return;
         }
 
@@ -146,25 +161,25 @@ export function App() {
     connectSignaling();
   };
 
+  // Navigate only after the socket closes so the `leave` frame reaches the server first;
+  // otherwise the peer sees a disconnect and gets `peer-left` only after the grace period.
   const leave = () => {
-    intentionalClose.current = true;
     reconnectCancelled.current = true;
     clearReconnectTimer();
-    client?.leave();
 
     if (!client) {
-      intentionalClose.current = false;
+      goHome();
+      return;
     }
 
-    activeClient.current = undefined;
-    resumeToken.current = undefined;
-    setClient(undefined);
-    setIceConfig(undefined);
-    setRoomUnavailable(false);
-    setReplacementPrivateLink('');
-    setCallNotice(undefined);
-    resetRoomState();
-    intentionalClose.current = false;
+    intentionalClose.current = true;
+    leaveFallbackTimer.current = setTimeout(goHome, LEAVE_FALLBACK_MS);
+    client.leave();
+  };
+
+  const goHome = () => {
+    clearTimeout(leaveFallbackTimer.current);
+    location.href = '/';
   };
 
   const createReplacementPrivateLink = () => {
@@ -193,8 +208,17 @@ export function App() {
 
       {current.room && (
         <section className="room-panel private-room-panel">
-          {roomUnavailable ? (
+          {entry === 'missing-key' ? (
             <RoomRecovery
+              title="This link has no encryption key"
+              description="The room key is missing from the link. Ask the other participant for a new private link, or create one and send it to them."
+              replacementPrivateLink={replacementPrivateLink}
+              onCreateReplacementPrivateLink={createReplacementPrivateLink}
+            />
+          ) : entry === 'unavailable' ? (
+            <RoomRecovery
+              title="This private link is no longer available"
+              description="Private room links are single-session. Create a new private link and send it to the participant again."
               replacementPrivateLink={replacementPrivateLink}
               onCreateReplacementPrivateLink={createReplacementPrivateLink}
             />
@@ -207,7 +231,7 @@ export function App() {
               roomState={connectionState.value}
               roomInstanceId={roomInstanceId.value}
               roomNotice={callNotice}
-              onJoin={join}
+              onRetry={autoJoinStarted.current && !isJoined && !isConnecting ? join : undefined}
               onLeave={leave}
             />
           )}
@@ -220,6 +244,7 @@ export function App() {
 }
 
 const IOS_INSTALL_HINT_DISMISSED_KEY = 'private-video-chat:ios-install-hint-dismissed';
+const LEAVE_FALLBACK_MS = 1_000;
 
 
 function readLocalStorage(key: string): string | null {
@@ -312,9 +337,13 @@ function resetRoomState(): void {
 }
 
 function RoomRecovery({
+  title,
+  description,
   replacementPrivateLink,
   onCreateReplacementPrivateLink,
 }: {
+  title: string;
+  description: string;
   replacementPrivateLink: string;
   onCreateReplacementPrivateLink: () => void;
 }) {
@@ -322,11 +351,9 @@ function RoomRecovery({
     <div className="room-recovery-card">
       <div>
         <span className="status-dot error" aria-hidden="true" />
-        <h2>This private link is no longer available</h2>
+        <h2>{title}</h2>
       </div>
-      <p>
-        Private room links are single-session. Create a new private link and send it to the participant again.
-      </p>
+      <p>{description}</p>
       <button onClick={onCreateReplacementPrivateLink}>Create new private link</button>
       {replacementPrivateLink && <ShareLink value={replacementPrivateLink} />}
     </div>
