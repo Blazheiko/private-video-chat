@@ -10,21 +10,17 @@ export function readAndClearFragmentKey(locationLike = window.location): string 
   return key;
 }
 
-export function newLink(
-  kind: 'group' | 'private',
-  origin = window.location.origin,
-): { roomId: string; key: string; url: string } {
+export function newLink(origin = window.location.origin): { roomId: string; key: string; url: string } {
   const roomId = randomRoomId();
   const bytes = new Uint8Array(32);
 
   crypto.getRandomValues(bytes);
 
   const key = base64UrlEncode(bytes);
-  const routeKind = kind === 'group' ? 'g' : 'p';
 
   return {
     roomId,
     key,
-    url: `${origin}/r/${routeKind}/${roomId}#k=${key}`,
+    url: `${origin}/r/p/${roomId}#k=${key}`,
   };
 }

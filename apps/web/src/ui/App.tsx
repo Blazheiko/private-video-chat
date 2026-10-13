@@ -1,26 +1,23 @@
 import type { IceConfig, ServerMessage } from '@shared';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { PrivateCall } from '@web/rtc/PrivateCall.js';
-import { ReplayGuard, decryptText, encryptText } from '@web/crypto/e2e.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
-import { connectionState, errorText, messages, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
+import { connectionState, errorText, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
 import { isAppleMobileDevice, isStandalonePwa } from '@web/pwa.js';
 import { reconnectDelayMs } from '@web/ws/reconnect.js';
 import { WsClient } from '@web/ws/client.js';
 
-function routeFromPath(): { kind: 'group' | 'private'; room?: string } {
+function routeFromPath(): { room?: string; legacyGroupLink: boolean } {
   const match = location.pathname.match(/^\/r\/(g|p)\/([A-Za-z0-9_-]{22})$/);
 
   return {
-    kind: match?.[1] === 'p' ? 'private' : 'group',
-    room: match?.[2],
+    room: match?.[1] === 'p' ? match[2] : undefined,
+    legacyGroupLink: match?.[1] === 'g',
   };
 }
 
 export function App() {
-  const [groupLink, setGroupLink] = useState('');
   const [privateLink, setPrivateLink] = useState('');
-  const [text, setText] = useState('');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [client, setClient] = useState<WsClient>();
   const [iceConfig, setIceConfig] = useState<IceConfig>();
@@ -36,9 +33,8 @@ export function App() {
   const reconnectAttempt = useRef(0);
   const resumeToken = useRef<string>();
   const reconnectCancelled = useRef(false);
-  const guard = useMemo(() => new ReplayGuard(), []);
   const current = routeFromPath();
-  const isPrivateRoom = current.kind === 'private' && Boolean(current.room);
+  const isPrivateRoom = Boolean(current.room);
   const isJoined = connectionState.value === 'joined';
   const isConnecting = connectionState.value === 'connecting';
 
@@ -72,11 +68,9 @@ export function App() {
     connectionState.value = 'connecting';
 
     const ws = new WsClient({
-      onMessage: async (msg: ServerMessage) => {
-        await handleServerMessage(
+      onMessage: (msg: ServerMessage) => {
+        handleServerMessage(
           msg,
-          linkKey,
-          guard,
           setIceConfig,
           setCallNotice,
           nextResumeToken => {
@@ -119,7 +113,7 @@ export function App() {
     });
 
     activeClient.current = ws;
-    ws.connectJoin(current.room, current.kind, senderId, token);
+    ws.connectJoin(current.room, senderId, token);
     setClient(ws);
   };
 
@@ -174,29 +168,7 @@ export function App() {
   };
 
   const createReplacementPrivateLink = () => {
-    setReplacementPrivateLink(newLink('private').url);
-  };
-
-  const send = async () => {
-    if (!client || !linkKey || !text.trim()) {
-      return;
-    }
-
-    const nextSequence = messages.value.filter(message => message.mine).length + 1;
-    const env = await encryptText(linkKey, text, senderId, nextSequence);
-
-    client.relay(env);
-    messages.value = [
-      ...messages.value,
-      {
-        id: env.aad.msgId,
-        from: selfId.value ?? senderId,
-        text,
-        ts: env.aad.ts,
-        mine: true,
-      },
-    ];
-    setText('');
+    setReplacementPrivateLink(newLink().url);
   };
 
   return (
@@ -205,61 +177,39 @@ export function App() {
 
       {!isPrivateRoom && showIosInstallHint && <IosInstallHint onDismiss={dismissIosInstallHint} />}
 
+      {current.legacyGroupLink && (
+        <p role="status">Group chats are no longer supported. Create a private chat link below instead.</p>
+      )}
+
       {!current.room && <MainOverview open={aboutOpen} onToggle={() => setAboutOpen(current => !current)} />}
 
       {!isPrivateRoom && (
         <section>
-          <button onClick={() => setGroupLink(newLink('group').url)}>Create group chat</button>
-          <button onClick={() => setPrivateLink(newLink('private').url)}>Create private chat (P2P)</button>
+          <button onClick={() => setPrivateLink(newLink().url)}>Create private chat (P2P)</button>
 
-          {groupLink && <ShareLink value={groupLink} />}
           {privateLink && <ShareLink value={privateLink} />}
         </section>
       )}
 
       {current.room && (
-        <section className={current.kind === 'private' ? 'room-panel private-room-panel' : 'room-panel'}>
-          {current.kind === 'group' ? (
-            <>
-              <h2>{current.kind} room</h2>
-              <p>
-                Status: {connectionState.value} {roomInstanceId.value ? `instance ${roomInstanceId.value}` : ''}
-              </p>
-              <button onClick={join}>Join</button>
-              <p>
-                Participants: {[selfId.value, ...peers.value.map(peer => peer.participantId)].filter(Boolean).join(', ')}
-              </p>
-              <div>
-                {messages.value.map(message => (
-                  <p key={message.id}>
-                    <b>{message.mine ? 'me' : message.from}</b>: {message.text}
-                  </p>
-                ))}
-              </div>
-              <input value={text} onInput={event => setText(event.currentTarget.value)} />
-              <button onClick={send}>Send</button>
-            </>
+        <section className="room-panel private-room-panel">
+          {roomUnavailable ? (
+            <RoomRecovery
+              replacementPrivateLink={replacementPrivateLink}
+              onCreateReplacementPrivateLink={createReplacementPrivateLink}
+            />
           ) : (
-            <>
-              {roomUnavailable ? (
-                <RoomRecovery
-                  replacementPrivateLink={replacementPrivateLink}
-                  onCreateReplacementPrivateLink={createReplacementPrivateLink}
-                />
-              ) : (
-                <PrivateCall
-                  client={client}
-                  selfId={selfId.value}
-                  peers={peers.value}
-                  iceConfig={iceConfig}
-                  roomState={connectionState.value}
-                  roomInstanceId={roomInstanceId.value}
-                  roomNotice={callNotice}
-                  onJoin={join}
-                  onLeave={leave}
-                />
-              )}
-            </>
+            <PrivateCall
+              client={client}
+              selfId={selfId.value}
+              peers={peers.value}
+              iceConfig={iceConfig}
+              roomState={connectionState.value}
+              roomInstanceId={roomInstanceId.value}
+              roomNotice={callNotice}
+              onJoin={join}
+              onLeave={leave}
+            />
           )}
         </section>
       )}
@@ -357,7 +307,6 @@ function resetRoomState(): void {
   selfId.value = undefined;
   roomInstanceId.value = undefined;
   peers.value = [];
-  messages.value = [];
   rtcSignals.value = [];
   errorText.value = undefined;
 }
@@ -438,15 +387,13 @@ function LinkActionIcon({ name }: { name: 'copy' | 'open' }) {
   );
 }
 
-async function handleServerMessage(
+function handleServerMessage(
   msg: ServerMessage,
-  linkKey: string,
-  guard: ReplayGuard,
   setIceConfig: (iceConfig: IceConfig) => void,
   setCallNotice: (message: string | undefined) => void,
   onJoined: (resumeToken: string) => void,
   onPrivateRoomUnavailable: () => void,
-): Promise<void> {
+): void {
   switch (msg.t) {
     case 'joined':
       selfId.value = msg.selfId;
@@ -456,7 +403,6 @@ async function handleServerMessage(
       setCallNotice(undefined);
       setIceConfig(msg.ice);
       onJoined(msg.resumeToken);
-      guard.resetAll();
       return;
 
     case 'peer-joined':
@@ -473,26 +419,6 @@ async function handleServerMessage(
         setCallNotice('Opponent ended the call.');
       }
 
-      if (msg.reason === 'grace-expired') {
-        guard.resetParticipant(msg.participantId);
-      }
-
-      return;
-
-    case 'relay':
-      if (!guard.accept(msg.from, msg.env)) {
-        return;
-      }
-
-      messages.value = [
-        ...messages.value,
-        {
-          id: msg.env.aad.msgId,
-          from: msg.from,
-          text: await decryptText(linkKey, msg.env),
-          ts: msg.env.aad.ts,
-        },
-      ];
       return;
 
     case 'signal':

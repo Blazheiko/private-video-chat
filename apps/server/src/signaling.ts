@@ -13,16 +13,6 @@ export function routeSignal(
     return { v: PROTOCOL_VERSION, t: 'error', code: 'NOT_JOINED', message: 'join required', fatal: true };
   }
 
-  if (found.room.kind !== 'private') {
-    return {
-      v: PROTOCOL_VERSION,
-      t: 'error',
-      code: 'WRONG_KIND',
-      message: 'signal/auth is private-room only',
-      fatal: true,
-    };
-  }
-
   const target = [...found.room.participants.values()].find(
     participant => participant.participantId === msg.to && participant.conn,
   );

@@ -51,7 +51,7 @@ describe('static cache', () => {
     const root = createStaticRoot();
     const cache = loadStaticCache(root);
 
-    const asset = resolveStatic(cache, '/r/g/abcdefghijklmnopqrstuv');
+    const asset = resolveStatic(cache, '/r/p/abcdefghijklmnopqrstuv');
 
     expect(asset?.path).toBe(join(root, 'index.html'));
     expect(asset?.body.toString()).toBe('<html>cached</html>');

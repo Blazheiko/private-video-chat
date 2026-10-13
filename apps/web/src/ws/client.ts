@@ -3,7 +3,6 @@ import {
   randomSessionNonce,
   validateServerMessage,
   type ClientMessage,
-  type EncryptedEnvelope,
   type RTCSignal,
   type ServerMessage,
 } from '@shared';
@@ -16,14 +15,13 @@ export type ClientHandlers = {
 
 export class WsClient {
   private ws?: WebSocket;
-  private cid = 0;
 
   constructor(
     private readonly handlers: ClientHandlers,
     private readonly wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`,
   ) {}
 
-  connectJoin(room: string, kind: 'group' | 'private', senderId: string, resumeToken?: string): void {
+  connectJoin(room: string, senderId: string, resumeToken?: string): void {
     this.ws = new WebSocket(this.wsUrl);
 
     this.ws.addEventListener('open', () =>
@@ -31,7 +29,6 @@ export class WsClient {
         v: PROTOCOL_VERSION,
         t: 'join',
         room,
-        kind,
         senderId,
         sessionNonce: randomSessionNonce(),
         ...(resumeToken ? { resumeToken } : {}),
@@ -51,10 +48,6 @@ export class WsClient {
     });
 
     this.ws.addEventListener('close', () => this.handlers.onClose?.());
-  }
-
-  relay(env: EncryptedEnvelope): void {
-    this.send({ v: PROTOCOL_VERSION, t: 'relay', cid: ++this.cid, env });
   }
 
   signal(to: string, data: RTCSignal): void {

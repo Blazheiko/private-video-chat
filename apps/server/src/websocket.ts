@@ -7,7 +7,6 @@ import {
   type ServerMessage,
 } from '#shared';
 import { isAllowedOrigin } from '#server/origin.js';
-import { handleRelay } from '#server/relay.js';
 import { RoomRegistry } from '#server/rooms.js';
 import { routeSignal } from '#server/signaling.js';
 import type { Connection } from '#server/transport.js';
@@ -173,13 +172,6 @@ function handleClientMessage(registry: RoomRegistry, conn: Connection, input: Ui
       conn.close?.(1000, 'left');
       return;
     }
-
-    case 'relay':
-      for (const message of handleRelay(registry, conn, parsed.value)) {
-        conn.send(message);
-        closeIfFatal(conn, message);
-      }
-      return;
 
     case 'signal':
     case 'auth': {

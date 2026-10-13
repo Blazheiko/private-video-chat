@@ -11,6 +11,8 @@ import {
 import { buildIceConfig } from '#server/ice.js';
 import type { Connection } from '#server/transport.js';
 
+const PRIVATE_ROOM_CAPACITY = 2;
+
 type Participant = PeerInfo & {
   conn?: Connection;
   resumeToken: string;
@@ -20,7 +22,6 @@ type Participant = PeerInfo & {
 
 type Room = {
   roomId: string;
-  kind: 'group' | 'private';
   roomInstanceId: string;
   participants: Map<string, Participant>;
   closeTimer?: NodeJS.Timeout;
@@ -47,39 +48,31 @@ export class RoomRegistry {
       return { ok: false, error: this.error('ROOM_CLOSED', 'private room is closed', true) };
     }
 
-    const room = this.findOrCreateRoom(msg);
+    const room = this.findOrCreateRoom(msg.room);
 
-    if (!room.ok) {
-      return room;
-    }
+    this.cancelRoomClose(room);
 
-    this.cancelRoomClose(room.value);
-
-    const resume = msg.resumeToken ? this.findByToken(room.value, msg.resumeToken) : undefined;
+    const resume = msg.resumeToken ? this.findByToken(room, msg.resumeToken) : undefined;
 
     if (msg.resumeToken && !resume) {
       return { ok: false, error: this.error('BAD_RESUME_TOKEN', 'resume token is invalid or expired', false) };
     }
 
-    if (!resume) {
-      const capacityError = this.roomCapacityError(room.value);
-
-      if (capacityError) {
-        return { ok: false, error: capacityError };
-      }
+    if (!resume && room.participants.size >= PRIVATE_ROOM_CAPACITY) {
+      return { ok: false, error: this.error('ROOM_FULL', 'private room is full', true) };
     }
 
-    const peers = [...room.value.participants.entries()]
+    const peers = [...room.participants.entries()]
       .filter(([participantId]) => participantId !== resume?.participantId)
       .map(([, participant]) => this.peerInfo(participant));
 
-    const participant = resume ? this.resumeParticipant(resume, conn) : this.createParticipant(room.value, conn, msg);
+    const participant = resume ? this.resumeParticipant(resume, conn) : this.createParticipant(room, conn, msg);
     const resumed = Boolean(resume);
     const joined = {
       v: PROTOCOL_VERSION,
       t: 'joined',
       selfId: participant.participantId,
-      roomInstanceId: room.value.roomInstanceId,
+      roomInstanceId: room.roomInstanceId,
       resumeToken: participant.resumeToken,
       resumed,
       peers,
@@ -88,7 +81,7 @@ export class RoomRegistry {
 
     return {
       ok: true,
-      room: room.value,
+      room,
       participant,
       joined,
       peersToNotify: resumed ? [] : peers,
@@ -167,28 +160,21 @@ export class RoomRegistry {
     };
   }
 
-  private findOrCreateRoom(
-    msg: Extract<ClientMessage, { t: 'join' }>,
-  ): { ok: true; value: Room } | { ok: false; error: Extract<ServerMessage, { t: 'error' }> } {
-    const existing = this.rooms.get(msg.room);
-
-    if (existing && existing.kind !== msg.kind) {
-      return { ok: false, error: this.error('WRONG_KIND', 'room kind mismatch', true) };
-    }
+  private findOrCreateRoom(roomId: string): Room {
+    const existing = this.rooms.get(roomId);
 
     if (existing) {
-      return { ok: true, value: existing };
+      return existing;
     }
 
     const room: Room = {
-      roomId: msg.room,
-      kind: msg.kind,
+      roomId,
       roomInstanceId: randomBase64Url(16),
       participants: new Map(),
     };
 
-    this.rooms.set(msg.room, room);
-    return { ok: true, value: room };
+    this.rooms.set(roomId, room);
+    return room;
   }
 
   private cancelRoomClose(room: Room): void {
@@ -198,18 +184,6 @@ export class RoomRegistry {
 
     clearTimeout(room.closeTimer);
     room.closeTimer = undefined;
-  }
-
-  private roomCapacityError(room: Room): Extract<ServerMessage, { t: 'error' }> | undefined {
-    if (room.kind === 'private' && room.participants.size >= 2) {
-      return this.error('ROOM_FULL', 'private room is full', true);
-    }
-
-    if (room.kind === 'group' && room.participants.size >= this.opts.MAX_GROUP_PARTICIPANTS) {
-      return this.error('ROOM_FULL', 'group room is full', true);
-    }
-
-    return undefined;
   }
 
   private resumeParticipant(participant: Participant, conn: Connection): Participant {
@@ -263,10 +237,8 @@ export class RoomRegistry {
     room.closeTimer = setTimeout(() => {
       this.rooms.delete(room.roomId);
 
-      if (room.kind === 'private') {
-        const timer = setTimeout(() => this.privateTombstones.delete(room.roomId), this.opts.ROOM_TOMBSTONE_MS);
-        this.privateTombstones.set(room.roomId, timer);
-      }
+      const timer = setTimeout(() => this.privateTombstones.delete(room.roomId), this.opts.ROOM_TOMBSTONE_MS);
+      this.privateTombstones.set(room.roomId, timer);
     }, this.opts.ROOM_GRACE_MS);
   }
 

@@ -1,14 +1,12 @@
 import {
   BASE64URL_RE,
   E2E_KEY_BASE64URL_LENGTH,
-  LIMITS,
-  MAX_RELAY_CIPHERTEXT_BYTES,
   MAX_SENDER_ID_LENGTH,
   PROTOCOL_VERSION,
   ROOM_ID_BASE64URL_LENGTH,
   SESSION_NONCE_BASE64URL_LENGTH,
 } from '#shared/constants.js';
-import type { ClientMessage, EncryptedEnvelope, ErrorCode, ServerMessage } from '#shared/protocol.js';
+import type { ClientMessage, ErrorCode, ServerMessage } from '#shared/protocol.js';
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -18,10 +16,8 @@ const KNOWN_SERVER_TYPES = new Set([
   'joined',
   'peer-joined',
   'peer-left',
-  'relay',
   'signal',
   'auth',
-  'ack',
   'ice-refresh',
   'pong',
   'error',
@@ -35,7 +31,6 @@ const fatalByCode: Record<ErrorCode, boolean> = {
   ALREADY_JOINED: false,
   ROOM_FULL: true,
   ROOM_CLOSED: true,
-  WRONG_KIND: true,
   UNKNOWN_PEER: false,
   RATE_LIMITED: false,
   JOIN_TIMEOUT: true,
@@ -50,9 +45,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0;
-
-const isSafeInteger = (value: unknown): value is number =>
-  Number.isSafeInteger(value) && Number(value) >= 0;
 
 export function isBase64Url(value: string, expectedLength?: number): boolean {
   return BASE64URL_RE.test(value) && (expectedLength === undefined || value.length === expectedLength);
@@ -103,9 +95,6 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
     case 'ping':
       return { ok: true, value: { v: PROTOCOL_VERSION, t: value.t } as ClientMessage };
 
-    case 'relay':
-      return validateRelayMessage(value);
-
     case 'signal':
       return validateSignalMessage(value);
 
@@ -140,10 +129,6 @@ function validateJoinMessage(value: Record<string, unknown>): ValidationResult<C
   const room = validateRoomId(value.room);
   if (!room.ok) return room;
 
-  if (value.kind !== 'group' && value.kind !== 'private') {
-    return err('BAD_MESSAGE', 'kind must be group or private');
-  }
-
   const senderId = validateSenderId(value.senderId);
   if (!senderId.ok) return senderId;
 
@@ -159,25 +144,6 @@ function validateJoinMessage(value: Record<string, unknown>): ValidationResult<C
   }
 
   return { ok: true, value: value as ClientMessage };
-}
-
-function validateRelayMessage(value: Record<string, unknown>): ValidationResult<ClientMessage> {
-  if (!isSafeInteger(value.cid)) {
-    return err('BAD_MESSAGE', 'cid must be a per-socket safe integer');
-  }
-
-  const env = validateEnvelope(value.env);
-  if (!env.ok) return env;
-
-  return {
-    ok: true,
-    value: {
-      v: PROTOCOL_VERSION,
-      t: 'relay',
-      cid: value.cid,
-      env: env.value,
-    },
-  };
 }
 
 function validateSignalMessage(value: Record<string, unknown>): ValidationResult<ClientMessage> {
@@ -202,56 +168,6 @@ function validateSenderId(value: unknown): ValidationResult<string> {
   }
 
   return { ok: true, value };
-}
-
-function validateEnvelope(value: unknown): ValidationResult<EncryptedEnvelope> {
-  if (!isRecord(value)) {
-    return err('BAD_MESSAGE', 'env must be an object');
-  }
-
-  const { iv, ciphertext, aad, sig } = value;
-
-  if (!isNonEmptyString(iv) || !isBase64Url(iv, LIMITS.IV_CHARS)) {
-    return err('BAD_MESSAGE', 'env.iv must be base64url');
-  }
-
-  if (!isNonEmptyString(ciphertext) || !isBase64Url(ciphertext) || ciphertext.length > MAX_RELAY_CIPHERTEXT_BYTES * 2) {
-    return err('MSG_TOO_LARGE', 'env.ciphertext is malformed or too large');
-  }
-
-  if (!isRecord(aad)) {
-    return err('BAD_MESSAGE', 'env.aad must be an object');
-  }
-
-  if (!isNonEmptyString(aad.msgId)) {
-    return err('BAD_MESSAGE', 'env.aad.msgId is required');
-  }
-
-  const sender = validateSenderId(aad.senderId);
-  if (!sender.ok) return sender;
-
-  if (!isSafeInteger(aad.seq) || !isSafeInteger(aad.ts)) {
-    return err('BAD_MESSAGE', 'env aad seq and ts must be safe integers');
-  }
-
-  if (sig !== undefined && !isNonEmptyString(sig)) {
-    return err('BAD_MESSAGE', 'env.sig must be a string');
-  }
-
-  return {
-    ok: true,
-    value: {
-      iv,
-      ciphertext,
-      aad: {
-        msgId: aad.msgId,
-        senderId: sender.value,
-        seq: aad.seq,
-        ts: aad.ts,
-      },
-      ...(sig === undefined ? {} : { sig }),
-    },
-  };
 }
 
 function err(code: ErrorCode, message: string): ValidationResult<never> {

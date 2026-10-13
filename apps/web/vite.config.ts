@@ -22,7 +22,7 @@ export default defineConfig({
         name: 'Private Video Chat',
         short_name: 'Private Chat',
         description:
-          'Secure browser-based private and group video rooms with ephemeral links, WebRTC media, and encrypted chat.',
+          'Secure browser-based private one-to-one video rooms with ephemeral links, WebRTC media, and encrypted chat.',
         start_url: '/',
         scope: '/',
         display: 'standalone',

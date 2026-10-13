@@ -7,7 +7,7 @@ type HistoryCall = Parameters<History['replaceState']>;
 function makeLocation(hash: string): Location {
   return {
     hash,
-    pathname: '/r/g/room-id',
+    pathname: '/r/p/room-id',
     search: '?utm=1',
   } as Location;
 }
@@ -30,7 +30,7 @@ describe('readAndClearFragmentKey', () => {
     const result = readAndClearFragmentKey(makeLocation(`#k=${key}`), history);
 
     expect(result).toBe(key);
-    expect(calls).toEqual([[{ retained: true }, '', '/r/g/room-id?utm=1']]);
+    expect(calls).toEqual([[{ retained: true }, '', '/r/p/room-id?utm=1']]);
   });
 
   it('clears malformed keys without returning them', () => {
@@ -40,7 +40,7 @@ describe('readAndClearFragmentKey', () => {
 
     expect(result).toBeUndefined();
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.[2]).toBe('/r/g/room-id?utm=1');
+    expect(calls[0]?.[2]).toBe('/r/p/room-id?utm=1');
   });
 
   it('leaves URLs without a key untouched', () => {

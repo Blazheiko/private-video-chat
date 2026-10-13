@@ -25,7 +25,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'group',
       senderId: 'a',
       sessionNonce,
     });
@@ -40,7 +39,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'group',
       senderId: 'a',
       sessionNonce,
       resumeToken: first.joined.resumeToken,
@@ -60,7 +58,6 @@ describe('room lifecycle', () => {
         v: PROTOCOL_VERSION,
         t: 'join',
         room,
-        kind: 'private',
         senderId: 'a',
         sessionNonce,
       }).ok,
@@ -70,7 +67,6 @@ describe('room lifecycle', () => {
         v: PROTOCOL_VERSION,
         t: 'join',
         room,
-        kind: 'private',
         senderId: 'b',
         sessionNonce,
       }).ok,
@@ -80,7 +76,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'private',
       senderId: 'c',
       sessionNonce,
     });
@@ -99,7 +94,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'group',
       senderId: 'a',
       sessionNonce,
     });
@@ -107,7 +101,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'group',
       senderId: 'b',
       sessionNonce,
     });
@@ -132,14 +125,12 @@ describe('room lifecycle', () => {
       ...({} as any),
       ROOM_GRACE_MS: 10,
       ROOM_TOMBSTONE_MS: 100,
-      MAX_GROUP_PARTICIPANTS: 50,
     } as any);
     const a = conn('a');
     const joined = reg.join(a.c, {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'private',
       senderId: 'a',
       sessionNonce,
     });
@@ -153,7 +144,6 @@ describe('room lifecycle', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'private',
       senderId: 'b',
       sessionNonce,
     });

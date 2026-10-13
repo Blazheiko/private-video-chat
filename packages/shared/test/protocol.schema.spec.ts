@@ -27,11 +27,38 @@ describe('protocol schemas', () => {
       v: PROTOCOL_VERSION,
       t: 'join',
       room,
-      kind: 'group',
       senderId: 'alice',
       sessionNonce: 'abcdefghijklmnopqrstuv',
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  it('rejects removed group relay command as fatal BAD_MESSAGE', () => {
+    const result = validateClientMessage({ v: PROTOCOL_VERSION, t: 'relay', cid: 1, env: {} });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok && !('skip' in result)) {
+      expect(result.code).toBe('BAD_MESSAGE');
+      expect(result.fatal).toBe(true);
+    }
+  });
+
+  it('rejects protocol v1 clients with PROTOCOL_VERSION', () => {
+    const result = validateClientMessage({ v: 1, t: 'ping' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok && !('skip' in result)) {
+      expect(result.code).toBe('PROTOCOL_VERSION');
+    }
+  });
+
+  it('skips removed relay and ack server events', () => {
+    for (const t of ['relay', 'ack']) {
+      const result = validateServerMessage({ v: PROTOCOL_VERSION, t });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect('skip' in result && result.skip).toBe(true);
+    }
   });
 });
