@@ -1,5 +1,7 @@
 # Implementation review handoff
 
+> **Note (2026-10-13):** group chats were removed in protocol v2. Items below about group rooms, `relay`, `ack`, and the M1 group gate are historical and no longer apply.
+
 **Date:** 2026-07-14  
 **Scope:** worker-3 review/documentation lane for the private-video-chat implementation task list.  
 **Source of truth:** `docs/technical-specification.md` v1.6 and `.omx/context/private-video-chat-implementation-20260714T143700Z.md`.
