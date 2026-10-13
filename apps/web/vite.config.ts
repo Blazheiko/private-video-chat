@@ -42,9 +42,20 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
-        globPatterns: ['**/*.{js,css,html}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/ws(?:\/|$)/],
+        // HTML is network-first so a deploy is picked up on the next page load; serving a
+        // precached index.html kept users on the old bundle (and old protocol) after deploys.
+        globPatterns: ['**/*.{js,css}'],
+        navigateFallback: null,
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'pages',
+              networkTimeoutSeconds: 3,
+            },
+          },
+        ],
       },
     }),
   ],
