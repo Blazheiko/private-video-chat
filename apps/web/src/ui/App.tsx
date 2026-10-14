@@ -510,7 +510,8 @@ function handleServerMessage(
       selfId.value = msg.selfId;
       roomInstanceId.value = msg.roomInstanceId;
       peers.value = msg.peers;
-      awayPeerIds.value = [];
+      // The snapshot is authoritative: a peer can already be away (in grace) when we (re)join.
+      awayPeerIds.value = msg.peers.filter(peer => peer.away).map(peer => peer.participantId);
       connectionState.value = 'joined';
       setCallNotice(undefined);
       setIceConfig(msg.ice);

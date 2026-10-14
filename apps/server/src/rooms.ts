@@ -66,7 +66,7 @@ export class RoomRegistry {
       .filter(([participantId]) => participantId !== resume?.participantId)
       .map(([, participant]) => this.peerInfo(participant));
 
-    const participant = resume ? this.resumeParticipant(resume, conn) : this.createParticipant(room, conn, msg);
+    const participant = resume ? this.resumeParticipant(resume, conn, msg) : this.createParticipant(room, conn, msg);
     const resumed = Boolean(resume);
     const joined = {
       v: PROTOCOL_VERSION,
@@ -164,6 +164,7 @@ export class RoomRegistry {
       senderId: participant.senderId,
       sessionNonce: participant.sessionNonce,
       ...(participant.senderPubKey ? { senderPubKey: participant.senderPubKey } : {}),
+      ...(participant.conn ? {} : { away: true as const }),
     };
   }
 
@@ -193,7 +194,11 @@ export class RoomRegistry {
     room.closeTimer = undefined;
   }
 
-  private resumeParticipant(participant: Participant, conn: Connection): Participant {
+  private resumeParticipant(
+    participant: Participant,
+    conn: Connection,
+    msg: Extract<ClientMessage, { t: 'join' }>,
+  ): Participant {
     if (participant.graceTimer) {
       clearTimeout(participant.graceTimer);
     }
@@ -201,6 +206,11 @@ export class RoomRegistry {
     participant.graceTimer = undefined;
     participant.conn = conn;
     participant.resumeToken = randomResumeToken();
+    // The resumeToken proves it is the same slot, but a reloaded tab starts a new session; adopt its
+    // metadata so the peer-joined broadcast on resume carries the current senderId/sessionNonce.
+    participant.senderId = msg.senderId;
+    participant.sessionNonce = msg.sessionNonce;
+    participant.senderPubKey = msg.senderPubKey;
 
     return participant;
   }

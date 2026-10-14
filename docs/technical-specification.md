@@ -224,6 +224,7 @@ type PeerInfo = {
   senderId: string;           // app-level псевдонім, оголошений у join (недовірений)
   sessionNonce: string;       // для transcript §7.1 (private)
   senderPubKey?: string;      // зарезервовано (у v2 не використовується)
+  away?: true;                // лише в знімку joined.peers: сокет закрито, слот ще в grace (§5.4). При resume сервер оновлює senderId/sessionNonce/senderPubKey слота й розсилає їх у peer-joined.
 };
 
 // Видається сервером при join і оновлюється до закінчення TTL (§6.10).

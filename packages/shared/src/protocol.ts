@@ -31,6 +31,8 @@ export type PeerInfo = {
   senderId: string;
   sessionNonce: string;
   senderPubKey?: string;
+  // Set in the `joined` snapshot for a peer whose socket is gone but whose slot is still in grace.
+  away?: true;
 };
 
 export type ClientMessage =

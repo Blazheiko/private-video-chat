@@ -118,6 +118,44 @@ describe('peer-away', () => {
     expect(a.last('peer-joined')?.peer.participantId).toBe(joined.selfId);
   });
 
+  it('marks a peer that is away inside grace in the joined snapshot of a resuming client', () => {
+    vi.useFakeTimers();
+    const { join } = setup();
+    const a = join('a');
+    const b = join('b');
+    const aJoined = a.last('joined')!;
+    const bId = b.last('joined')!.selfId;
+
+    b.end();
+    a.end();
+    const aResumed = join('a', aJoined.resumeToken);
+
+    expect(aResumed.last('joined')).toMatchObject({ resumed: true, peers: [{ participantId: bId, away: true }] });
+  });
+
+  it('does not mark connected peers as away', () => {
+    const { join } = setup();
+    join('a');
+    const b = join('b');
+
+    expect(b.last('joined')!.peers[0]).not.toHaveProperty('away');
+  });
+
+  it('refreshes senderId and sessionNonce on resume and announces them to the peer', () => {
+    vi.useFakeTimers();
+    const { join } = setup();
+    const a = join('a');
+    const b = join('b');
+    const bJoined = b.last('joined')!;
+
+    b.end();
+    const resumed = join('b-reloaded', bJoined.resumeToken);
+
+    expect(resumed.last('joined')?.resumed).toBe(true);
+    expect(a.last('peer-joined')?.peer).toMatchObject({ participantId: bJoined.selfId, senderId: 'b-reloaded' });
+    expect(a.last('peer-joined')?.peer).not.toHaveProperty('away');
+  });
+
   it('sends only peer-left on explicit leave', () => {
     vi.useFakeTimers();
     const { join } = setup();
