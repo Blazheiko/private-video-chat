@@ -119,6 +119,34 @@ export function App() {
     };
   }, []);
 
+  // Network events only steer the live session: never revive one after Exit, a cancelled
+  // reconnect, or an unavailable room (all of which set reconnectCancelled).
+  useEffect(() => {
+    if (!current.room) {
+      return;
+    }
+
+    const onOffline = () => {
+      if (!reconnectCancelled.current && !intentionalClose.current) {
+        activeClient.current?.abandon();
+      }
+    };
+
+    const onOnline = () => {
+      if (reconnectTimer.current && !reconnectCancelled.current && !intentionalClose.current) {
+        clearReconnectTimer();
+        connectSignaling(resumeToken.current);
+      }
+    };
+
+    addEventListener('offline', onOffline);
+    addEventListener('online', onOnline);
+    return () => {
+      removeEventListener('offline', onOffline);
+      removeEventListener('online', onOnline);
+    };
+  }, []);
+
   useEffect(() => {
     if (entry !== 'auto-join' || autoJoinStarted.current) {
       return;

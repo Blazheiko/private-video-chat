@@ -334,7 +334,10 @@ type ErrorCode =
 ### 6.11 Транспортні правила (Origin, timeouts, heartbeat, backpressure)
 - **Origin validation:** при WS-upgrade сервер перевіряє заголовок `Origin` проти allow-list (свій домен). Невідповідність → відмова upgrade (HTTP 403). Захист від cross-origin WS-hijack.
 - **Join timeout:** якщо клієнт не надіслав `join` протягом `JOIN_TIMEOUT_MS` (дефолт 10 с) після відкриття WS → `error{JOIN_TIMEOUT}` + close `4408`.
-- **Heartbeat:** клієнт шле `ping` кожні `HEARTBEAT_MS` (дефолт 25 с); сервер відповідає `pong`. Сервер також має власний ping-таймер; за відсутності будь-якого трафіку/пінгу протягом `IDLE_TIMEOUT_MS` (дефолт 60 с) з'єднання дропається. (uWS має вбудований idle-timeout + автопінг — використати його.)
+- **Heartbeat (асиметричний):**
+  - **Сервер → клієнт:** uWS `idleTimeout = IDLE_TIMEOUT_MS` (дефолт 20 с, гранулярність ~4 с) + `sendPingsAutomatically` — protocol-level ping, на який відповідає мережевий стек браузера (не JS, тож не залежить від тротлінгу фонових вкладок). Мертвий клієнт закривається за ≤ ~24 с → співрозмовнику миттєво `peer-away` (§5.4), ще через `ROOM_GRACE_MS` — `peer-left{grace-expired}`.
+  - **Клієнт → сервер:** після `open` клієнт шле app-level `ping` кожні `HEARTBEAT_MS` (дефолт 10 с) і чекає **будь-яке** повідомлення від сервера протягом `PONG_TIMEOUT_MS` (5 с). Немає відповіді → з'єднання вважається мертвим: клієнт одразу закриває його й запускає reconnect з `resumeToken` (не чекаючи браузерного `close`, що на мертвій мережі приходить через хвилини). Порівнюються мітки часу, а не точність таймерів, тож тротлінг фонових таймерів не дає хибних спрацювань.
+  - Події браузера `offline` → негайне закриття поточного з'єднання; `online` → негайний reconnect замість очікування backoff. Обидві діють лише на активну сесію (не після Exit, скасованого reconnect чи недоступної кімнати).
 - **Backpressure:** перед `send` сервер перевіряє `ws.getBufferedAmount()`; якщо > `MAX_BACKPRESSURE_BYTES` (дефолт 1 MiB) → `error{BACKPRESSURE}` + close `4413` (повільний споживач не має роздувати пам'ять).
 
 ### 6.12 Стан-машина з'єднання (клієнт)
@@ -551,7 +554,7 @@ authTranscript = CBOR(canonical, {
 - NFR-4. Fragment (`#k=`) з ключем ніколи не потрапляє в серверні логи чи Referer; стирається з URL після зчитування (§8.1).
 - NFR-5. Захист від зловживань: rate-limit на створення кімнат і на повідомлення (per-IP); **максимальний розмір повідомлення** (cap); максимальна кількість активних кімнат/конектів на процес та per-IP (проти Sybil); авто-дроп мовчазних з'єднань (ping/pong heartbeat). Конкретні стартові бюджети — **§10.5**.
 - NFR-5a. **Access-логи мінімізовані:** IP/room-id/тайминги не персистяться (retention = 0) або скрабляться — «не логуємо контент» не покриває метадані з'єднань за замовчуванням.
-- NFR-5b. **Конфігуровані константи протоколу** (єдине джерело — `packages/shared/src/constants.ts`): ліміти §6.6, `JOIN_TIMEOUT_MS`, `HEARTBEAT_MS`, `IDLE_TIMEOUT_MS`, `MAX_BACKPRESSURE_BYTES`, `ROOM_GRACE_MS`/`ROOM_TOMBSTONE_MS` (§5.4), TURN `ttlSec`, `MAX_FILE_BYTES` (повний / fallback, §6.14.5), `MAX_CONCURRENT_TRANSFERS`, `chunkSize`, `TRANSFER_STALL_MS`, `BUFFER_HIGH`/`bufferedAmountLowThreshold`, а також усі бюджети §10.5 (`MAX_CONNECTIONS`, `MAX_ROOMS`, `MAX_ROOMS_PER_IP`, `CREATE_ROOMS_PER_IP`, `JOINS_PER_IP`, `CONNS_PER_IP`).
+- NFR-5b. **Конфігуровані константи протоколу** (єдине джерело — `packages/shared/src/constants.ts`): ліміти §6.6, `JOIN_TIMEOUT_MS`, `HEARTBEAT_MS`, `PONG_TIMEOUT_MS`, `IDLE_TIMEOUT_MS`, `MAX_BACKPRESSURE_BYTES`, `ROOM_GRACE_MS`/`ROOM_TOMBSTONE_MS` (§5.4), TURN `ttlSec`, `MAX_FILE_BYTES` (повний / fallback, §6.14.5), `MAX_CONCURRENT_TRANSFERS`, `chunkSize`, `TRANSFER_STALL_MS`, `BUFFER_HIGH`/`bufferedAmountLowThreshold`, а також усі бюджети §10.5 (`MAX_CONNECTIONS`, `MAX_ROOMS`, `MAX_ROOMS_PER_IP`, `CREATE_ROOMS_PER_IP`, `JOINS_PER_IP`, `CONNS_PER_IP`).
 - NFR-5c. **Рантайм-валідація всіх мережевих повідомлень** (§6.13) на сервері та клієнті; TS-типи не вважаються валідацією.
 
 ### 10.2 Продуктивність (з умовами вимірювання)
