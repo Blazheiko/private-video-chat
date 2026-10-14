@@ -1,5 +1,7 @@
 import { ROOM_GRACE_MS, type IceConfig, type PeerInfo, type RTCSignal, type ServerMessage } from '@shared';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { createSerialQueue } from '@web/rtc/serial-queue.js';
+import { isFatalSignalError } from '@web/rtc/signal-errors.js';
 import { rtcSignals } from '@web/state/app.js';
 import { WsClient } from '@web/ws/client.js';
 
@@ -115,6 +117,12 @@ export function PrivateCall({
   const previousPeerId = useRef<string>();
   const lastTypingSentAt = useRef(0);
   const pendingFileTransfers = useRef(new Map<string, PendingFileTransfer>());
+  // Set on unmount: async WebRTC/media steps that finish later must become no-ops (and release what
+  // they acquired) instead of updating state or leaving the camera on.
+  const disposed = useRef(false);
+  // One queue per component instance: signals are applied strictly in arrival order, so an ICE
+  // candidate never reaches addIceCandidate before the offer's setRemoteDescription.
+  const [signalQueue] = useState(() => createSerialQueue(error => console.warn('Signal task failed', error)));
 
   const callActive = Boolean(peerConnection.current);
   const canStartCall = Boolean(
@@ -140,7 +148,7 @@ export function PrivateCall({
   }, []);
 
   useEffect(() => {
-    void processIncomingSignals();
+    processIncomingSignals();
   }, [rtcSignals.value, peer?.participantId, client, iceConfig]);
 
   useEffect(() => {
@@ -172,6 +180,8 @@ export function PrivateCall({
   }, [peer?.participantId, roomNotice]);
 
   useEffect(() => () => {
+    disposed.current = true;
+    signalQueue.close();
     clearTimeout(peerTypingTimer.current);
     clearTimeout(presenceNoticeTimer.current);
     endCall({ notifyPeer: false });
@@ -200,10 +210,17 @@ export function PrivateCall({
 
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
+
+      if (disposed.current) {
+        return;
+      }
+
       sendSignal(peer.participantId, sessionDescriptionSignal(offer, 'offer'));
       setCallState('calling');
     } catch (error) {
-      handleCallError(error);
+      if (!disposed.current) {
+        handleCallError(error);
+      }
     }
   };
 
@@ -310,7 +327,9 @@ export function PrivateCall({
     }
   };
 
-  async function processIncomingSignals(): Promise<void> {
+  // Synchronous on purpose: a signal counts as taken only when it is queued, and there is no await
+  // between slice and push, so repeated effect runs can neither skip nor duplicate a signal.
+  function processIncomingSignals(): void {
     if (!client) {
       return;
     }
@@ -319,14 +338,16 @@ export function PrivateCall({
     processedSignalCount.current = rtcSignals.value.length;
 
     for (const signal of pendingSignals) {
-      await handleSignal(signal);
+      signalQueue.push(() => handleSignal(signal));
     }
   }
 
   async function handleSignal(signal: Extract<ServerMessage, { t: 'signal' }>): Promise<void> {
-    try {
-      setCallError(undefined);
+    if (disposed.current) {
+      return;
+    }
 
+    try {
       // The app never renegotiates, so an offer on a settled connection means the peer restarted
       // (F5 keeps its participantId) and our old connection is dead.
       if (signal.data.type === 'offer' && peerConnection.current?.signalingState === 'stable') {
@@ -336,10 +357,16 @@ export function PrivateCall({
       const connection = await ensurePeerConnection(signal.from);
 
       if (signal.data.type === 'offer') {
+        setCallError(undefined);
         await connection.setRemoteDescription(signal.data);
         const answer = await connection.createAnswer();
 
         await connection.setLocalDescription(answer);
+
+        if (disposed.current) {
+          return;
+        }
+
         sendSignal(signal.from, sessionDescriptionSignal(answer, 'answer'));
         setCallState('calling');
         return;
@@ -354,7 +381,16 @@ export function PrivateCall({
         await connection.addIceCandidate(signal.data.candidate);
       }
     } catch (error) {
-      handleCallError(error);
+      if (disposed.current) {
+        return;
+      }
+
+      if (isFatalSignalError(signal.data.type)) {
+        handleCallError(error);
+        return;
+      }
+
+      console.warn('Ignoring ICE candidate that could not be applied', error);
     }
   }
 
@@ -385,7 +421,18 @@ export function PrivateCall({
       return localStream.current;
     }
 
-    localStream.current = await navigator.mediaDevices.getUserMedia(localMediaConstraints());
+    const stream = await navigator.mediaDevices.getUserMedia(localMediaConstraints());
+
+    if (disposed.current) {
+      // Unmounted while waiting for permission: endCall() already ran and does not know this stream.
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+
+      throw new Error('Private call was closed');
+    }
+
+    localStream.current = stream;
     cameraVideoTrack.current = localStream.current.getVideoTracks()[0];
 
     for (const track of localStream.current.getAudioTracks()) {
