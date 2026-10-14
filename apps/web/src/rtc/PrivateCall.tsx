@@ -178,6 +178,12 @@ export function PrivateCall({
 
     try {
       setCallError(undefined);
+
+      // canStartCall excludes an active call, so a leftover connection is dead (e.g. the peer reloaded).
+      if (peerConnection.current) {
+        endCall({ notifyPeer: false });
+      }
+
       setCallState('requesting-media');
 
       const connection = await ensurePeerConnection(peer.participantId);
@@ -313,6 +319,12 @@ export function PrivateCall({
   async function handleSignal(signal: Extract<ServerMessage, { t: 'signal' }>): Promise<void> {
     try {
       setCallError(undefined);
+
+      // The app never renegotiates, so an offer on a settled connection means the peer restarted
+      // (F5 keeps its participantId) and our old connection is dead.
+      if (signal.data.type === 'offer' && peerConnection.current?.signalingState === 'stable') {
+        endCall({ notifyPeer: false });
+      }
 
       const connection = await ensurePeerConnection(signal.from);
 
@@ -584,6 +596,14 @@ export function PrivateCall({
       setDataChannelOpen(false);
       setPeerTyping(false);
       clearTimeout(peerTypingTimer.current);
+
+      // endCall() detaches the channel before it closes, so a close on the current channel means the
+      // peer vanished (tab closed or F5). The connection can still report 'connected' for ~30 s until
+      // ICE consent expires, which would keep "Start video call" disabled; end the call right away.
+      if (dataChannel.current === channel) {
+        showPresenceNotice('Connection to the opponent was lost.');
+        endCall({ notifyPeer: false });
+      }
     };
     channel.onmessage = event => {
       const message = parseDataChannelMessage(event.data);
@@ -791,9 +811,7 @@ export function PrivateCall({
             aria-label="Back to home page"
             title={remoteVideoActive ? 'Home is disabled while opponent video is streaming' : 'Back to home page'}
             disabled={remoteVideoActive}
-            onClick={() => {
-              location.href = '/';
-            }}
+            onClick={onLeave}
           >
             <HomeIcon />
           </button>

@@ -24,16 +24,7 @@ export class WsClient {
   connectJoin(room: string, senderId: string, resumeToken?: string): void {
     this.ws = new WebSocket(this.wsUrl);
 
-    this.ws.addEventListener('open', () =>
-      this.send({
-        v: PROTOCOL_VERSION,
-        t: 'join',
-        room,
-        senderId,
-        sessionNonce: randomSessionNonce(),
-        ...(resumeToken ? { resumeToken } : {}),
-      }),
-    );
+    this.ws.addEventListener('open', () => this.join(room, senderId, resumeToken));
 
     this.ws.addEventListener('message', event => {
       const parsed = validateServerMessage(String(event.data));
@@ -48,6 +39,17 @@ export class WsClient {
     });
 
     this.ws.addEventListener('close', () => this.handlers.onClose?.());
+  }
+
+  join(room: string, senderId: string, resumeToken?: string): void {
+    this.send({
+      v: PROTOCOL_VERSION,
+      t: 'join',
+      room,
+      senderId,
+      sessionNonce: randomSessionNonce(),
+      ...(resumeToken ? { resumeToken } : {}),
+    });
   }
 
   signal(to: string, data: RTCSignal): void {

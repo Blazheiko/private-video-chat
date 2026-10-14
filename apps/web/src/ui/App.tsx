@@ -3,10 +3,33 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { PrivateCall } from '@web/rtc/PrivateCall.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
 import { connectionState, errorText, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
+import { clearRoomSession, loadRoomSession, pickRoomSession, saveRoomSession } from '@web/state/room-session.js';
 import { isAppleMobileDevice, isStandalonePwa } from '@web/pwa.js';
 import { roomEntry } from '@web/ui/room-entry.js';
 import { reconnectDelayMs } from '@web/ws/reconnect.js';
 import { WsClient } from '@web/ws/client.js';
+
+function restoreRoomSession(room: string | undefined, keyFromUrl: string | undefined) {
+  if (!room) {
+    return undefined;
+  }
+
+  const session = pickRoomSession({ stored: loadRoomSession(room), keyFromUrl, isReload: isPageReload() });
+
+  if (session) {
+    saveRoomSession(room, session);
+  } else {
+    clearRoomSession(room);
+  }
+
+  return session;
+}
+
+function isPageReload(): boolean {
+  const [navigation] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+
+  return navigation?.type === 'reload';
+}
 
 function routeFromPath(): { room?: string; legacyGroupLink: boolean } {
   const match = location.pathname.match(/^\/r\/(g|p)\/([A-Za-z0-9_-]{22})$/);
@@ -26,13 +49,14 @@ export function App() {
   const [replacementPrivateLink, setReplacementPrivateLink] = useState('');
   const [callNotice, setCallNotice] = useState<string>();
   const [showIosInstallHint, setShowIosInstallHint] = useState(false);
-  const [linkKey] = useState(() => readAndClearFragmentKey());
+  const [initialSession] = useState(() => restoreRoomSession(routeFromPath().room, readAndClearFragmentKey()));
+  const linkKey = initialSession?.linkKey;
   const [senderId] = useState(() => crypto.randomUUID().slice(0, 8));
   const intentionalClose = useRef(false);
   const activeClient = useRef<WsClient>();
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const reconnectAttempt = useRef(0);
-  const resumeToken = useRef<string>();
+  const resumeToken = useRef<string | undefined>(initialSession?.resumeToken);
   const reconnectCancelled = useRef(false);
   const autoJoinStarted = useRef(false);
   const leaveFallbackTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -54,6 +78,26 @@ export function App() {
     },
     [],
   );
+
+  // Back/Forward can restore a left room from the bfcache with its old JS state ("joined" over a
+  // closed socket). Coming back is not a reload, so drop stored credentials and load the page fresh.
+  useEffect(() => {
+    const room = current.room;
+
+    if (!room) {
+      return;
+    }
+
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        clearRoomSession(room);
+        location.reload();
+      }
+    };
+
+    addEventListener('pageshow', onPageShow);
+    return () => removeEventListener('pageshow', onPageShow);
+  }, []);
 
   useEffect(() => {
     if (entry !== 'auto-join' || autoJoinStarted.current) {
@@ -78,7 +122,10 @@ export function App() {
   };
 
   const connectSignaling = (token?: string) => {
-    if (!current.room || !linkKey) {
+    const room = current.room;
+    const key = linkKey;
+
+    if (!room || !key) {
       errorText.value = 'Open a room link with #k= key to join.';
       return;
     }
@@ -96,8 +143,16 @@ export function App() {
             resumeToken.current = nextResumeToken;
             reconnectAttempt.current = 0;
             errorText.value = undefined;
+            saveRoomSession(room, { linkKey: key, resumeToken: nextResumeToken });
           },
           () => {
+            // The slot expired (e.g. F5 after the grace period): join on the same socket as a new participant.
+            resumeToken.current = undefined;
+            saveRoomSession(room, { linkKey: key });
+            ws.join(room, senderId);
+          },
+          () => {
+            clearRoomSession(room);
             reconnectCancelled.current = true;
             activeClient.current = undefined;
             clearReconnectTimer();
@@ -128,7 +183,7 @@ export function App() {
     });
 
     activeClient.current = ws;
-    ws.connectJoin(current.room, senderId, token);
+    ws.connectJoin(room, senderId, token);
     setClient(ws);
   };
 
@@ -157,8 +212,9 @@ export function App() {
     setReplacementPrivateLink('');
     reconnectCancelled.current = false;
     reconnectAttempt.current = 0;
-    resumeToken.current = undefined;
-    connectSignaling();
+    // Keep the stored resumeToken: after F5 it reclaims our own slot instead of hitting ROOM_FULL
+    // against it; an expired token is handled via BAD_RESUME_TOKEN.
+    connectSignaling(resumeToken.current);
   };
 
   // Navigate only after the socket closes so the `leave` frame reaches the server first;
@@ -179,6 +235,11 @@ export function App() {
 
   const goHome = () => {
     clearTimeout(leaveFallbackTimer.current);
+
+    if (current.room) {
+      clearRoomSession(current.room);
+    }
+
     location.href = '/';
   };
 
@@ -419,6 +480,7 @@ function handleServerMessage(
   setIceConfig: (iceConfig: IceConfig) => void,
   setCallNotice: (message: string | undefined) => void,
   onJoined: (resumeToken: string) => void,
+  onBadResumeToken: () => void,
   onPrivateRoomUnavailable: () => void,
 ): void {
   switch (msg.t) {
@@ -457,6 +519,11 @@ function handleServerMessage(
       return;
 
     case 'error':
+      if (msg.code === 'BAD_RESUME_TOKEN') {
+        onBadResumeToken();
+        return;
+      }
+
       errorText.value = `${msg.code}: ${msg.message}`;
       connectionState.value = 'error';
 
