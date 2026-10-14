@@ -21,6 +21,10 @@ function createStaticRoot(): string {
   writeFileSync(join(staticRoot, 'manifest.json'), '{}');
   writeFileSync(join(staticRoot, 'manifest.webmanifest'), '{}');
   writeFileSync(join(staticRoot, 'icon.png'), 'png');
+  writeFileSync(join(staticRoot, 'robots.txt'), 'User-agent: *');
+  writeFileSync(join(staticRoot, 'style.css'), 'body{}');
+  writeFileSync(join(staticRoot, 'icon.svg'), '<svg/>');
+  writeFileSync(join(staticRoot, 'sitemap.xml'), '<urlset/>');
 
   return staticRoot;
 }
@@ -45,6 +49,24 @@ describe('static cache', () => {
     expect(resolveStatic(cache, '/manifest.json')?.type).toBe('application/json; charset=utf-8');
     expect(resolveStatic(cache, '/manifest.webmanifest')?.type).toBe('application/manifest+json; charset=utf-8');
     expect(resolveStatic(cache, '/icon.png')?.type).toBe('image/png');
+  });
+
+  it('serves text assets with explicit MIME types instead of octet-stream', () => {
+    const root = createStaticRoot();
+    const cache = loadStaticCache(root);
+    const expected: Record<string, string> = {
+      '/robots.txt': 'text/plain; charset=utf-8',
+      '/index.html': 'text/html; charset=utf-8',
+      '/app.js': 'text/javascript; charset=utf-8',
+      '/style.css': 'text/css; charset=utf-8',
+      '/manifest.json': 'application/json; charset=utf-8',
+      '/icon.svg': 'image/svg+xml',
+      '/sitemap.xml': 'application/xml; charset=utf-8',
+    };
+
+    for (const [route, type] of Object.entries(expected)) {
+      expect(resolveStatic(cache, route)?.type, route).toBe(type);
+    }
   });
 
   it('falls back to cached index.html for unknown application routes', () => {
