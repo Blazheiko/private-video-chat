@@ -16,6 +16,7 @@ const KNOWN_SERVER_TYPES = new Set([
   'joined',
   'peer-joined',
   'peer-left',
+  'peer-away',
   'signal',
   'auth',
   'ice-refresh',

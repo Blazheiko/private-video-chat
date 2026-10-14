@@ -2,7 +2,7 @@ import type { IceConfig, ServerMessage } from '@shared';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { PrivateCall } from '@web/rtc/PrivateCall.js';
 import { newLink, readAndClearFragmentKey } from '@web/crypto/link.js';
-import { connectionState, errorText, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
+import { awayPeerIds, connectionState, errorText, peers, roomInstanceId, rtcSignals, selfId } from '@web/state/app.js';
 import { clearRoomSession, loadRoomSession, pickRoomSession, saveRoomSession } from '@web/state/room-session.js';
 import { isAppleMobileDevice, isStandalonePwa } from '@web/pwa.js';
 import { roomEntry } from '@web/ui/room-entry.js';
@@ -79,14 +79,30 @@ export function App() {
     [],
   );
 
-  // Back/Forward can restore a left room from the bfcache with its old JS state ("joined" over a
-  // closed socket). Coming back is not a reload, so drop stored credentials and load the page fresh.
+  // A page only enters the bfcache when the user navigates away (never on F5), and a frozen page
+  // keeps its WebSocket answering pings, so the server would hold our slot and the peer would hear
+  // nothing. Treat it as an explicit exit. Coming back from the bfcache is not a reload either, so
+  // drop stored credentials and load the page fresh instead of showing stale "joined" state.
   useEffect(() => {
     const room = current.room;
 
     if (!room) {
       return;
     }
+
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        return;
+      }
+
+      const ws = activeClient.current;
+
+      reconnectCancelled.current = true;
+      clearReconnectTimer();
+      clearRoomSession(room);
+      activeClient.current = undefined;
+      ws?.leave();
+    };
 
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
@@ -95,8 +111,12 @@ export function App() {
       }
     };
 
+    addEventListener('pagehide', onPageHide);
     addEventListener('pageshow', onPageShow);
-    return () => removeEventListener('pageshow', onPageShow);
+    return () => {
+      removeEventListener('pagehide', onPageHide);
+      removeEventListener('pageshow', onPageShow);
+    };
   }, []);
 
   useEffect(() => {
@@ -288,6 +308,7 @@ export function App() {
               client={client}
               selfId={selfId.value}
               peers={peers.value}
+              peerAway={peers.value.some(peer => awayPeerIds.value.includes(peer.participantId))}
               iceConfig={iceConfig}
               roomState={connectionState.value}
               roomInstanceId={roomInstanceId.value}
@@ -393,6 +414,7 @@ function resetRoomState(): void {
   selfId.value = undefined;
   roomInstanceId.value = undefined;
   peers.value = [];
+  awayPeerIds.value = [];
   rtcSignals.value = [];
   errorText.value = undefined;
 }
@@ -488,6 +510,7 @@ function handleServerMessage(
       selfId.value = msg.selfId;
       roomInstanceId.value = msg.roomInstanceId;
       peers.value = msg.peers;
+      awayPeerIds.value = [];
       connectionState.value = 'joined';
       setCallNotice(undefined);
       setIceConfig(msg.ice);
@@ -499,13 +522,32 @@ function handleServerMessage(
         ...peers.value.filter(peer => peer.participantId !== msg.peer.participantId),
         msg.peer,
       ];
+
+      // A resumed slot keeps its participantId, so peer-joined for an away peer means it came back.
+      if (awayPeerIds.value.includes(msg.peer.participantId)) {
+        awayPeerIds.value = awayPeerIds.value.filter(id => id !== msg.peer.participantId);
+        setCallNotice('Opponent is back.');
+      }
+
+      return;
+
+    case 'peer-away':
+      if (!awayPeerIds.value.includes(msg.participantId)) {
+        awayPeerIds.value = [...awayPeerIds.value, msg.participantId];
+      }
+
+      setCallNotice('Opponent disconnected. Waiting for them to come back…');
       return;
 
     case 'peer-left':
       peers.value = peers.value.filter(peer => peer.participantId !== msg.participantId);
+      awayPeerIds.value = awayPeerIds.value.filter(id => id !== msg.participantId);
 
       if (msg.reason === 'left') {
         setCallNotice('Opponent ended the call.');
+      } else {
+        // Clear the "waiting" notice so PrivateCall announces that the opponent left.
+        setCallNotice(undefined);
       }
 
       return;

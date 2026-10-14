@@ -10,6 +10,7 @@ const knownServerTypes = [
   'joined',
   'peer-joined',
   'peer-left',
+  'peer-away',
   'signal',
   'auth',
   'ice-refresh',

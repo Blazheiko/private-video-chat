@@ -61,6 +61,8 @@ export type ServerMessage =
     }
   | { v: number; t: 'peer-joined'; peer: PeerInfo }
   | { v: number; t: 'peer-left'; participantId: string; reason: PeerLeftReason }
+  // Socket closed without `leave`; the slot is kept for ROOM_GRACE_MS and a resume sends `peer-joined`.
+  | { v: number; t: 'peer-away'; participantId: string }
   | { v: number; t: 'signal'; from: string; data: RTCSignal }
   | { v: number; t: 'auth'; from: string; mac: string }
   | { v: number; t: 'ice-refresh'; ice: IceConfig }

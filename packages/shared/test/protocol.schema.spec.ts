@@ -53,6 +53,12 @@ describe('protocol schemas', () => {
     }
   });
 
+  it('accepts peer-away as a known server event', () => {
+    const result = validateServerMessage({ v: PROTOCOL_VERSION, t: 'peer-away', participantId: 'abcdefghijklmnopqrstuv' });
+
+    expect(result.ok).toBe(true);
+  });
+
   it('skips removed relay and ack server events', () => {
     for (const t of ['relay', 'ack']) {
       const result = validateServerMessage({ v: PROTOCOL_VERSION, t });

@@ -128,11 +128,18 @@ export class RoomRegistry {
       return { messages: [] as Array<{ conn: Connection; msg: ServerMessage }> };
     }
 
+    const participantId = found.participant.participantId;
+
     found.participant.conn = undefined;
     found.participant.graceTimer = setTimeout(
-      () => this.removeParticipant(found.room, found.participant.participantId, 'grace-expired'),
+      () => this.removeParticipant(found.room, participantId, 'grace-expired'),
       this.opts.ROOM_GRACE_MS,
     );
+
+    // Tell peers right away; the slot stays reserved for the grace period (F5, network blip).
+    for (const target of this.peers(found.room)) {
+      target.send({ v: PROTOCOL_VERSION, t: 'peer-away', participantId });
+    }
 
     if ([...found.room.participants.values()].every(participant => !participant.conn)) {
       this.scheduleRoomClose(found.room);

@@ -162,7 +162,8 @@ https://host/r/p/XyZ789...#k=<base64url-key>   ← приватна (P2P)
 Семантику **«одноразова кімната» прибрано** як хибну (див. §7.3: сама лінка з `#k` багаторазова, тож знищення в пам'яті не робить кімнату криптографічно одноразовою й не дає forward secrecy). Замість неї — **ефемерна кімната з grace-періодом** та явним `roomInstanceId`.
 
 - FR-19. Кімната створюється в пам'яті при першому WS-підключенні за її ID й отримує **`roomInstanceId`** — випадковий ідентифікатор цього інстансу (входить у `joined`; змінюється при кожному новому інстансі того самого room ID).
-- FR-20. Після відключення **останнього** учасника кімната не знищується миттєво: запускається **grace-період** (`ROOM_GRACE_MS`, напр. 15–30 с). Так само, коли окремий учасник втратив сокет, його **`participantId`-слот** тримається протягом grace (не миттєвий `peer-left`).
+- FR-20. Після відключення **останнього** учасника кімната не знищується миттєво: запускається **grace-період** (`ROOM_GRACE_MS`, напр. 15–30 с). Так само, коли окремий учасник втратив сокет, його **`participantId`-слот** тримається протягом grace (не миттєвий `peer-left`). При цьому сервер **миттєво** надсилає іншим учасникам `peer-away{participantId}` — «тимчасово відключився», щоб UI не мовчав 20 с; відновлення слота супроводжується `peer-joined` з тим самим `participantId` («повернувся»), а закінчення grace — `peer-left{reason:'grace-expired'}`.
+  - Сторінка, що йде в bfcache (`pagehide` з `persisted:true` — лише навігація геть, не F5), надсилає явний `leave`: заморожена сторінка інакше тримала б WebSocket відкритим (мережевий стек відповідає на ping), і сервер не бачив би виходу.
   - Реконект у межах grace з валідним **`resumeToken`** (§6.1) → відновлюється **той самий інстанс** і **той самий `participantId`-слот** (`roomInstanceId` зберігається; `joined{resumed:true}`). Покриває реконект WS (NFR-10) та ICE-restart (NFR-11).
   - Реконект без/з невалідним токеном → `BAD_RESUME_TOKEN`, приєднання як новий учасник (якщо є вільний слот).
   - Якщо grace минув без підключень — інстанс знищується з усім станом; по peer-ах, чий слот протух, надсилається `peer-left{reason:'grace-expired'}`.
@@ -209,7 +210,8 @@ type ServerMessage =
   // resumeToken — секрет для reclaim слота під час grace (§6.1); ротовний.
   | { v: number; t: 'joined'; selfId: string; roomInstanceId: string; resumeToken: string; resumed: boolean; peers: PeerInfo[]; ice?: IceConfig }
   | { v: number; t: 'peer-joined'; peer: PeerInfo }
-  | { v: number; t: 'peer-left'; participantId: string; reason: 'left' | 'grace-expired' } // reason розрізняє тимчасовий обрив (нема події) і остаточний вихід
+  | { v: number; t: 'peer-left'; participantId: string; reason: 'left' | 'grace-expired' } // остаточний вихід: явний leave або кінець grace
+  | { v: number; t: 'peer-away'; participantId: string }    // сокет закрито без leave; слот тримається grace (§5.4). Сумісна нова подія (§6.7)
   | { v: number; t: 'signal'; from: string; data: RTCSignal }
   | { v: number; t: 'auth'; from: string; mac: string }
   | { v: number; t: 'ice-refresh'; ice: IceConfig }          // оновлені TURN-креденшели до TTL (§6.10)

@@ -1,4 +1,4 @@
-import type { IceConfig, PeerInfo, RTCSignal, ServerMessage } from '@shared';
+import { ROOM_GRACE_MS, type IceConfig, type PeerInfo, type RTCSignal, type ServerMessage } from '@shared';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { rtcSignals } from '@web/state/app.js';
 import { WsClient } from '@web/ws/client.js';
@@ -7,6 +7,7 @@ type Props = {
   client?: WsClient;
   selfId?: string;
   peers: PeerInfo[];
+  peerAway: boolean;
   iceConfig?: IceConfig;
   roomState: 'closed' | 'connecting' | 'joined' | 'error';
   roomInstanceId?: string;
@@ -73,6 +74,7 @@ export function PrivateCall({
   client,
   selfId,
   peers,
+  peerAway,
   iceConfig,
   roomState,
   roomInstanceId,
@@ -115,10 +117,15 @@ export function PrivateCall({
   const pendingFileTransfers = useRef(new Map<string, PendingFileTransfer>());
 
   const callActive = Boolean(peerConnection.current);
-  const canStartCall = Boolean(client && selfId && peer && callState !== 'calling' && callState !== 'connected');
+  const canStartCall = Boolean(
+    client && selfId && peer && !peerAway && callState !== 'calling' && callState !== 'connected',
+  );
   const isJoined = roomState === 'joined';
   const isConnecting = roomState === 'connecting';
-  const statusText = useMemo(() => statusLabel(callState, Boolean(peer), dataChannelOpen), [callState, peer, dataChannelOpen]);
+  const statusText = useMemo(
+    () => statusLabel(callState, Boolean(peer), peerAway, dataChannelOpen),
+    [callState, peer, peerAway, dataChannelOpen],
+  );
   const statusDotClass = callState === 'idle' && peer ? 'peer-present' : callState;
 
   useEffect(() => {
@@ -1337,9 +1344,13 @@ function Icon({ name }: { name: IconName }) {
   }
 }
 
-function statusLabel(callState: CallState, hasPeer: boolean, dataChannelOpen: boolean): string {
+function statusLabel(callState: CallState, hasPeer: boolean, peerAway: boolean, dataChannelOpen: boolean): string {
   if (!hasPeer) {
     return 'Waiting for the second participant to join.';
+  }
+
+  if (peerAway) {
+    return `Opponent disconnected. Waiting up to ${Math.round(ROOM_GRACE_MS / 1000)} s for them to come back…`;
   }
 
   if (dataChannelOpen) {
